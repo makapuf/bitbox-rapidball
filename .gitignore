@@ -1,0 +1,6 @@
+build/
+*.o
+*_emu
+*.spr
+*.spr.png
+*.bin
