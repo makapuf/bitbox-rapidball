@@ -6,12 +6,11 @@
 #include <stdlib.h> // rand
 
 #include "bitbox.h"
-#include "blitter.h"
 
-#include <chiptune_player.h>
-#include "rapid1.h"
+#include "lib/blitter.h"
+#include "lib/chiptune.h"
 
-#include "build/bg.h"
+#include "bg.h"
 extern const unsigned char ball_spr[];
 extern const unsigned char platform_spr[];
 extern const unsigned char heart_spr[];
@@ -27,6 +26,7 @@ const int player_vspeed=2;
 #define pos_lives   20+11*25
 #define pos_hiscore 18+11*25
 
+extern struct ChipSong rapid1_chipsong, rapid2_chipsong;
 
 extern uint8_t songdata[], songdata2[];
 
@@ -83,7 +83,7 @@ void setup_welcome()
 	state = state_welcome;
 	score=0;
 	hide_all();
-	ply_init(SONGLEN, songdata);
+	chip_play(&rapid1_chipsong);
 }
 
 
@@ -107,11 +107,11 @@ void setup_ready(void)
 	setup_bg(bg_ready);
 	pause=210; 
 	display();
-	ply_init(2, songdata2);
+	chip_play(&rapid2_chipsong);
 }
 
 void setup_play(void) {
-	ply_init(0, NULL);
+	chip_play(0);
 
 	setup_bg(bg_game); 
 	state = state_play;
@@ -227,6 +227,8 @@ void play_frame()
 }
 
 void game_init() {
+	blitter_init();
+
 	// load resources, sprites, bg
 	ob_background = tilemap_new (bg_tset,0,0,bg_header,vram);
 	ob_player = sprite_new(ball_spr,0,2000,0);
@@ -240,7 +242,6 @@ void game_init() {
 }
 
 void game_frame() {
-	ply_update();
 	kbd_emulate_gamepad();
 	switch (state) 
 	{
