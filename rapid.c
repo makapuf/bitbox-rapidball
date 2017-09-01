@@ -6,9 +6,12 @@
 #include <stdlib.h> // rand
 
 #include "bitbox.h"
+#if BITBOX_KERNEL != 0010 
+#error must be compiled with kernel version v0.10 
+#endif 
 
-#include "lib/blitter.h"
-#include "lib/chiptune.h"
+#include "lib/blitter/blitter.h"
+#include "lib/chiptune/player.h"
 
 #include "bg.h"
 extern const unsigned char ball_spr[];
@@ -30,15 +33,7 @@ extern struct ChipSong rapid1_chipsong, rapid2_chipsong;
 
 extern uint8_t songdata[], songdata2[];
 
-enum Game_state {
-	state_welcome, state_ready, state_play, state_dead
-};
-
-
-int score, vspeed, in_menu, lives;
-int best_score;
-int pause; // tempo for pause before next state
-enum Game_state state; // game state
+int score, vspeed, in_menu, lives, best_score;
 
 #define NB_LOGS 7
 
@@ -70,7 +65,7 @@ void setup_bg(int i)
 	tmap_blit(ob_background, 0,0, bg_header,bg_tmap[i]);
 }
 
-void setup_welcome()
+void welcome(void)
 {
 	setup_bg(bg_intro); 
 	// best score
@@ -79,15 +74,19 @@ void setup_welcome()
 		vram[pos_hiscore+4-i] = bg_zero+x%10;
 		x/=10;
 	}
+
 	lives=3;
-	state = state_welcome;
 	score=0;
+
 	hide_all();
 	chip_play(&rapid1_chipsong);
+	do {
+		wait_vsync(1);
+	} while ( !GAMEPAD_PRESSED(0,A) && !GAMEPAD_PRESSED(0,start));
 }
 
 
-void display()
+void display(void)
 {
 	// display score (5 digits)
 	int x=score;
@@ -101,20 +100,26 @@ void display()
 }
 
 
-void setup_ready(void)
+void ready(void)
 {
-	state=state_ready;
 	setup_bg(bg_ready);
-	pause=210; 
 	display();
 	chip_play(&rapid2_chipsong);
+
+	hide_all();
+	ob_player->x = 173; 
+	for (int i=0;i<3;i++) {
+		ob_player->y = 44;
+		wait_vsync(30);
+		ob_player->y = 1000;
+		wait_vsync(30);
+	}
 }
 
-void setup_play(void) {
+void play(void) 
+{
 	chip_play(0);
-
 	setup_bg(bg_game); 
-	state = state_play;
 	ob_player->y = 44;
 	for (int i=0;i<NB_LOGS;i++) {
 		platform[i]->x = left_x+(right_x-left_x-platform[0]->w)*i/NB_LOGS;
@@ -122,111 +127,99 @@ void setup_play(void) {
 		platform[i]->fr = 0; // standard log.
 	}
 	display();
-}
 
-void setup_dead() {
-	hide_all();
-	setup_bg(bg_over); // do it each frame ?			
-	pause=200;
-	state=state_dead;
-	// play dead song ?
-}
+	while(1) { // return to die
 
-void loose() 
-{
-	if (lives) {
-		lives--; // lose a life
-		setup_ready();			
-	} else {
-		if (best_score<score) 
-			best_score = score;
-		setup_dead();
-	}
-}
+		// update bg
+		if (vga_frame%16==0) {
+			score++;
+			// update bg with score
+		}
 
-void play_frame() 
-{
-	// update bg
-	if (vga_frame%16==0) {
-		score++;
-		// update bg with score
-	}
+		vspeed = (score/64)+2;
 
-	vspeed = (score/64)+2;
+		// handle player input / movement / animation
+		if (GAMEPAD_PRESSED(0,left) && ob_player->x > left_x) 
+			ob_player->x -= player_hspeed;
+		if (GAMEPAD_PRESSED(0,right) && ob_player->x < right_x - ob_player->w) 
+			ob_player->x += player_hspeed;
+		ob_player->y += player_vspeed;
 
-	// handle player input / movement / animation
-	if (GAMEPAD_PRESSED(0,left) && ob_player->x > left_x) 
-		ob_player->x -= player_hspeed;
-	if (GAMEPAD_PRESSED(0,right) && ob_player->x < right_x - ob_player->w) 
-		ob_player->x += player_hspeed;
-	ob_player->y += player_vspeed;
-
-	// move/update logs
-	// 30 fps only for objects (xxx should use fractional positions)
-	if (vga_frame%2==0) {
-		// move heart if on sreen
-		if (ob_heart->y!=2000) 
-			ob_heart->y-=vspeed;
-		if (ob_heart->y+(int)ob_heart->h <= top_y)
-			ob_heart->y=2000;
-		// move logs
-		for (int i=0; i<NB_LOGS;i++) {
-			platform[i]->y -= vspeed;
-			if (platform[i]->y+(int)platform[i]->h <= top_y)	{
-				/* if logs have reached the top of the screen
-				 push enemies on bottom of screen as needed 
-				 no need to create/delete them, they're just 
-				 too high to be seen / collide.
-				 Also, randomly add hearts/deadly platforms.
-				 */
-				platform[i]->x = left_x+rand()%(right_x-platform[i]->w-left_x);
-				platform[i]->y += bottom_y-top_y;
-				platform[i]->fr = rand()%4; 
-				// should we place an heart ? 
-				// do so if heart is avail, on a blue platform, 1/8 odds
-				if (platform[i]->fr == 3 && ob_heart->y>1000 && rand()%8==0) {
-					ob_heart->x = platform[i]->x+20;
-					ob_heart->y = platform[i]->y-15;
+		// move/update logs
+		// 30 fps only for objects (xxx should use fractional positions)
+		if (vga_frame%2==0) {
+			// move heart if on sreen
+			if (ob_heart->y!=2000) 
+				ob_heart->y-=vspeed;
+			if (ob_heart->y+(int)ob_heart->h <= top_y)
+				ob_heart->y=2000;
+			// move logs
+			for (int i=0; i<NB_LOGS;i++) {
+				platform[i]->y -= vspeed;
+				if (platform[i]->y+(int)platform[i]->h <= top_y)	{
+					/* if logs have reached the top of the screen
+					 push enemies on bottom of screen as needed 
+					 no need to create/delete them, they're just 
+					 too high to be seen / collide.
+					 Also, randomly add hearts/deadly platforms.
+					 */
+					platform[i]->x = left_x+rand()%(right_x-platform[i]->w-left_x);
+					platform[i]->y += bottom_y-top_y;
+					platform[i]->fr = rand()%4; 
+					// should we place an heart ? 
+					// do so if heart is avail, on a blue platform, 1/8 odds
+					if (platform[i]->fr == 3 && ob_heart->y>1000 && rand()%8==0) {
+						ob_heart->x = platform[i]->x+20;
+						ob_heart->y = platform[i]->y-15;
+					}
 				}
 			}
 		}
-	}
 
-	// -- test collisions
-	// borders
-	if (ob_player->y <= top_y || ob_player->y >= bottom_y - ob_player->h)
-	{
-		loose();
-		return;
-	}
-	
-	// logs
-	for (int i=0;i<NB_LOGS;i++)
-		if (collide(i)) // check frame !
-			switch(platform[i]->fr) {
-				case 0 : 
-				case 3 : 
-					// put on top of platform
-					ob_player->y = platform[i]->y-ob_player->h;
-					break;
-				case 1 : // deadly : 
-					loose();
-					return;
-				case 2 : // transparent 
-					break;				
-			}
+		// -- test collisions
+		// borders
+		if (ob_player->y <= top_y || ob_player->y >= bottom_y - ob_player->h)
+			return;
+		
+		// logs
+		for (int i=0;i<NB_LOGS;i++)
+			if (collide(i)) // check frame !
+				switch(platform[i]->fr) {
+					case 0 : 
+					case 3 : 
+						// put on top of platform
+						ob_player->y = platform[i]->y-ob_player->h;
+						break;
+					case 1 : // deadly : 
+						return;
+					case 2 : // transparent 
+						break;				
+				}
 
-	if (collide(100)) // heart collision 
-	{
-		if (lives<4)
-			lives +=1;
-		ob_heart->y=2000;
-	}
+		if (collide(100)) // heart collision 
+		{
+			if (lives<4)
+				lives +=1;
+			ob_heart->y=2000;
+		}
 
-	display();
+		display();
+
+		wait_vsync(1);
+	}
 }
 
-void game_init() {
+void endgame()
+{
+	if (best_score<score) 
+		best_score = score;
+	hide_all();
+	setup_bg(bg_over); 
+	wait_vsync(200);
+}
+
+void init()
+{
 	blitter_init();
 
 	// load resources, sprites, bg
@@ -237,36 +230,21 @@ void game_init() {
 		platform[i] = sprite_new(platform_spr,0,2000,0);
 
 	best_score = 0;
-
-	setup_welcome();
 }
 
-void game_frame() {
-	kbd_emulate_gamepad();
-	switch (state) 
-	{
-		case state_welcome : 
-			if (GAMEPAD_PRESSED(0,A) || GAMEPAD_PRESSED(0,start)) 
-				setup_ready();
-			break;
+void bitbox_main() {
+	init();
 
-		case state_ready : 
-			if (!pause--) 
-				setup_play();
-			else if (pause%30==0 && pause<180) {
-				hide_all();
-				ob_player->x = 173; 
-				ob_player->y = 44 + (pause%60*1000);
-			}
-			break;
+	while (1) {
+		welcome();
 
-		case state_dead : 
-			if (!pause--) 
-				setup_welcome();
-			break;
+		while(lives) {
+			ready();
+			play();
+			lives--; // lose a life
+		}
 
-		case state_play : 
-			play_frame();
-			break;
+		endgame();
 	}
 }
+

@@ -1,6 +1,6 @@
 build/
 *.o
-*_emu
+*_sdl
 *.spr
 *.spr.png
 *.bin
