@@ -17,7 +17,7 @@ rapid.c: bg.h
 %.c: %.song
 	python $(BITBOX)/lib/chiptune/song2C.py $^ > $@
 
-bg.h bg.tmap: bg.tmx 
+bg.h bg.tmap bg.tset: bg.tmx 
 	python $(BITBOX)/lib/blitter/scripts/tmx.py  $< > $*.h
 
 %.spr : %.png
