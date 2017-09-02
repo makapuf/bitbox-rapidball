@@ -6,3 +6,7 @@ build/
 *.bin
 *.tmap
 *.tset
+*.elf
+
+rapid1.c
+rapid2.c
